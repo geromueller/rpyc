@@ -384,11 +384,17 @@ class Connection(object):
             raise ValueError("invalid message type: %r" % (msg,))
 
     def sync_recv_and_dispatch(self, timeout, wait_for_lock):
+        """Receives and dispatches a single transaction, should one arrives in the given
+        interval. Note that handling a request/reply may trigger nested
+        requests, which are all part of a single transaction.
+
+        :returns: ``True`` if a transaction was served, ``False`` otherwise"""
+
         # lock or wait for signal
         if self._sync_lock.acquire(False):
             self._sync_event.clear()
             try:
-                data = self._recv(timeout, wait_for_lock = False)
+                data = self._recv(timeout, wait_for_lock=wait_for_lock)
                 if not data:
                     return False
                 self._dispatch(data)
@@ -396,8 +402,11 @@ class Connection(object):
             finally:
                 self._sync_lock.release()
                 self._sync_event.set()
+        elif wait_for_lock:
+            self._sync_event.wait(timeout)
+            return False
         else:
-            self._sync_event.wait()
+            return False
 
     def poll(self, timeout = 0):
         """Serves a single transaction, should one arrives in the given
