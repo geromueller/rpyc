@@ -357,9 +357,7 @@ class Connection(object):
     #
     # serving
     #
-    def _recv(self, timeout, wait_for_lock):
-        if not self._recvlock.acquire(wait_for_lock):
-            return None
+    def _recv(self, timeout):
         try:
             if self._channel.poll(timeout):
                 data = self._channel.recv()
@@ -368,8 +366,7 @@ class Connection(object):
         except EOFError:
             self.close()
             raise
-        finally:
-            self._recvlock.release()
+
         return data
 
     def _dispatch(self, data):
@@ -394,7 +391,7 @@ class Connection(object):
         if self._sync_lock.acquire(False):
             self._sync_event.clear()
             try:
-                data = self._recv(timeout, wait_for_lock=wait_for_lock)
+                data = self._recv(timeout)
                 if not data:
                     return False
                 self._dispatch(data)
@@ -442,15 +439,6 @@ class Connection(object):
             self.close()
 
     def serve_threaded(self, thread_count=10):
-        def _thread_target():
-            try:
-                while True:
-                    self.serve(None)
-            except (socket.error, select_error, IOError):
-                if not self.closed:
-                    raise
-            except EOFError:
-                pass
 
         threads = []
 
@@ -458,7 +446,7 @@ class Connection(object):
         alive."""
         try:
             for _ in range(thread_count):
-                thread = Thread(target=_thread_target)
+                thread = Thread(target=self.serve_all)
                 thread.daemon = True
                 thread.start()
                 threads.append(thread)
